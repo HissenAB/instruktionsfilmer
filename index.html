@@ -111,8 +111,6 @@
 <script src="https://cdn.jsdelivr.net/npm/fuse.js@6.6.2"></script>
 <script src="https://cdn.jsdelivr.net/npm/@emailjs/browser@4/dist/email.min.js"></script>
 <script>
-emailjs.init(MAILCODE);
-
 let mockMode = false;
 const MAX_PER_DAY = 3;
 const search = document.getElementById('search');
@@ -138,20 +136,25 @@ search.focus();
 async function loadVideos() {
   try {
     const response = await fetch('filmer.json');
+    if (!response.ok) throw new Error('Kunde inte hämta filmer.json');
     const videos = await response.json();
+    if (!Array.isArray(videos)) throw new Error('Ogiltigt format i filmer.json');
 
     videos.forEach(video => {
+      if (typeof video.title !== 'string' || typeof video.category !== 'string' ||
+          !/^[A-Za-z0-9_-]{11}$/.test(video.youtubeId)) return;
       const div = document.createElement('div');
       div.classList.add('video');
       div.dataset.category = video.category;
       const thumbnail = `https://img.youtube.com/vi/${video.youtubeId}/hqdefault.jpg`;
       div.innerHTML = `
-        <h2>${video.title}</h2>
+        <h2></h2>
         <div class="video-thumb-wrapper">
           <img src="${thumbnail}" loading="lazy" decoding="async">
           <div class="play-overlay"><i class="fas fa-play"></i></div>
         </div>
       `;
+      div.querySelector('h2').textContent = video.title;
 
       const wrapper = div.querySelector('.video-thumb-wrapper');
       wrapper.addEventListener('click', () => {
@@ -193,25 +196,27 @@ async function loadVideos() {
     });
 
     initCategoryClicks();
+    filterVideos(document.querySelector('.categories a.active').textContent, search.value.trim().toLowerCase());
   } catch(err) {
     console.error('Kunde inte ladda videor:', err);
+    noResults.style.display = 'block';
   }
 }
 
 loadVideos();
 
 // ===== Highlight =====
-function highlightText(text, matches){
-  let result = '', lastIndex = 0;
-  matches.forEach(match => {
-    match.indices.forEach(([start,end]) => {
-      result += text.slice(lastIndex,start);
-      result += '<mark>' + text.slice(start,end+1) + '</mark>';
-      lastIndex = end+1;
-    });
+function highlightText(element, text, indices){
+  element.replaceChildren();
+  let lastIndex = 0;
+  indices.forEach(([start,end]) => {
+    element.append(document.createTextNode(text.slice(lastIndex,start)));
+    const mark = document.createElement('mark');
+    mark.textContent = text.slice(start,end+1);
+    element.append(mark);
+    lastIndex = end+1;
   });
-  result += text.slice(lastIndex);
-  return result;
+  element.append(document.createTextNode(text.slice(lastIndex)));
 }
 
 // ===== Toast =====
@@ -257,7 +262,7 @@ function filterVideos(category, searchText){
     const h2 = v.element.querySelector('h2');
     if(matchResult && matchResult.matches.length>0){
       const titleMatch = matchResult.matches.find(m => m.key==='title');
-      if(titleMatch) h2.innerHTML = highlightText(v.title,titleMatch.indices);
+      if(titleMatch) highlightText(h2,v.title,titleMatch.indices);
       else h2.textContent = v.title;
     } else h2.textContent = v.title;
     if(show) visibleCount++;
@@ -356,3 +361,4 @@ document.getElementById("send-suggestion").addEventListener('click', ()=>{
 </script>
 </body>
 </html>
+
