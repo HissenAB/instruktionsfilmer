@@ -111,7 +111,8 @@
 <script src="https://cdn.jsdelivr.net/npm/fuse.js@6.6.2"></script>
 <script src="https://cdn.jsdelivr.net/npm/@emailjs/browser@4/dist/email.min.js"></script>
 <script>
-emailjs.init(MAILCODE);
+// Publik EmailJS-nyckel från i.html. Privata nycklar får aldrig ligga i sidan.
+const EMAILJS_PUBLIC_KEY = "86Xo_kJFJ5nr-AGLL";
 
 let mockMode = false;
 const MAX_PER_DAY = 3;
@@ -138,6 +139,7 @@ search.focus();
 async function loadVideos() {
   try {
     const response = await fetch('filmer.json');
+    if (!response.ok) throw new Error(`HTTP ${response.status}`);
     const videos = await response.json();
 
     videos.forEach(video => {
@@ -154,11 +156,11 @@ async function loadVideos() {
       `;
 
       const wrapper = div.querySelector('.video-thumb-wrapper');
+      // Behåll filmens ID även när sökningen markerar eller ändrar rubriken.
+      wrapper.dataset.youtubeId = video.youtubeId;
       wrapper.addEventListener('click', () => {
         if (activeVideoWrapper && activeVideoWrapper !== wrapper) {
-          const prevVideo = activeVideoWrapper.parentElement;
-          const prevData = videos.find(v => v.title === prevVideo.querySelector('h2').textContent);
-          const prevThumbnail = `https://img.youtube.com/vi/${prevData.youtubeId}/hqdefault.jpg`;
+          const prevThumbnail = `https://img.youtube.com/vi/${activeVideoWrapper.dataset.youtubeId}/hqdefault.jpg`;
           activeVideoWrapper.innerHTML = `
             <img src="${prevThumbnail}" loading="lazy" decoding="async">
             <div class="play-overlay"><i class="fas fa-play"></i></div>
@@ -193,22 +195,23 @@ async function loadVideos() {
     });
 
     initCategoryClicks();
+    filterVideos(document.querySelector('.categories a.active').textContent, search.value.trim().toLowerCase());
   } catch(err) {
     console.error('Kunde inte ladda videor:', err);
+    noResults.textContent = 'Kunde inte ladda filmerna. Försök ladda om sidan.';
+    noResults.style.display = 'block';
   }
 }
 
 loadVideos();
 
 // ===== Highlight =====
-function highlightText(text, matches){
+function highlightText(text, indices){
   let result = '', lastIndex = 0;
-  matches.forEach(match => {
-    match.indices.forEach(([start,end]) => {
+  indices.forEach(([start,end]) => {
       result += text.slice(lastIndex,start);
       result += '<mark>' + text.slice(start,end+1) + '</mark>';
       lastIndex = end+1;
-    });
   });
   result += text.slice(lastIndex);
   return result;
@@ -234,11 +237,31 @@ function showToast(message, success=true, allowUndo=false){
 }
 function undoSend(){ pendingSend=false; pendingData=null; updateToast("Du ångrade ditt förslag", false); const button=document.getElementById("send-suggestion"); resetButton(button,0); }
 function updateToast(message, success=true){ const toast=document.getElementById("toast"); toast.innerHTML=message; toast.style.background=success?"#28a745":"#dc3545"; toast.classList.add("show"); clearTimeout(undoTimeout); undoTimeout=setTimeout(()=>toast.classList.remove("show"),2000);}
-function actuallySend(data){ const {suggestion,userAgent,screenSize,button}=data; if(mockMode){ updateToast("Mockläge – mejl skickas ej"); incrementCount(); resetButton(button); } else { emailjs.send("service_ke92itt","template_341abdv",{suggestion,userAgent,screenSize}).then(()=>{ incrementCount(); updateToast("Förslaget skickat!"); document.getElementById("suggestion-input").value=""; button.textContent="Skickat!"; resetButton(button,3000); }).catch(err=>{ console.error(err); updateToast("Något gick fel, försök igen", false); resetButton(button); }); } }
+async function actuallySend(data){
+  const {suggestion,userAgent,screenSize,button}=data;
+  if(mockMode){ updateToast("Mockläge – mejl skickas ej"); incrementCount(); resetButton(button); return; }
+  try {
+    if (!window.emailjs) throw new Error('EmailJS kunde inte laddas');
+    // Initiera först vid sändning så att mejltjänsten inte kan stoppa filmerna.
+    emailjs.init({ publicKey: EMAILJS_PUBLIC_KEY });
+    await emailjs.send("service_ke92itt","template_341abdv",{suggestion,userAgent,screenSize});
+    incrementCount();
+    updateToast("Förslaget skickat!");
+    document.getElementById("suggestion-input").value="";
+    button.textContent="Skickat!";
+    resetButton(button,3000);
+  } catch(err) {
+    console.error(err);
+    updateToast("Något gick fel, försök igen", false);
+    resetButton(button);
+  }
+}
 function resetButton(button,delay=2000){ setTimeout(()=>{ button.disabled=false; button.textContent="Skicka förslag"; },delay); }
 
 // ===== Filter + mobilvänlig "Sök i alla" =====
 function filterVideos(category, searchText){
+  // Sökfältet kan användas innan JSON och sökindex har laddats.
+  if (!fuse) return;
   let results;
   if(searchText){
     results = fuse.search(searchText).sort((a,b)=>a.score-b.score);
@@ -268,9 +291,12 @@ function filterVideos(category, searchText){
 
 // ===== "Sök i alla"-knapp logik =====
 function updateSearchAllBtn(){
+  const hasSearchValue = search.value.trim() !== '';
+  categoriesEl.style.display = (window.innerWidth <= 500 && hasSearchValue) ? 'none' : 'flex';
   const categoriesVisible = window.getComputedStyle(categoriesEl).display !== 'none';
   const activeCategory = document.querySelector('.categories a.active').textContent;
-  const hasSearchValue = search.value.trim() !== '';
+  activeLabel.textContent = hasSearchValue ? 'Sök i: ' + activeCategory : '';
+  activeLabel.style.display = (window.innerWidth <= 500 && hasSearchValue) ? 'block' : 'none';
   searchAllBtn.style.display = (hasSearchValue && activeCategory !== "Alla" && !categoriesVisible) ? 'inline-block' : 'none';
 }
 
